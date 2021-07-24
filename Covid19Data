@@ -1,0 +1,140 @@
+import sqlalchemy
+import pandas as pd
+from sqlalchemy.orm import sessionmaker
+import requests
+import json
+from datetime import datetime, timedelta
+import datetime
+import sqlite3
+
+CONNECTION = "covid_cases.sqlite"
+DATABASE_LOCATION = f"sqlite:///{CONNECTION}"
+
+state = "GA"
+daysInPast = 7
+#could I add a line that compares yesterday to today to get number of new cases and new deaths?
+
+def check_if_valid_data(df: pd.DataFrame) -> bool:
+    if df.empty:
+        print("No covid data")
+        return False
+
+    #check that report dates are unique
+    if pd.Series(df['report_date'] + df['state']).is_unique:
+        pass
+    else:
+        raise Exception("Report date is not unique")
+
+    #check for null values in dataset
+    if df.isnull().values.any():
+        raise Exception("Data is null")
+
+
+def get_covid_data(state, daysInPast) -> pd.DataFrame:
+    url = f"https://localcoviddata.com/covid19/v1/cases/jhu?state={state}&daysInPast={daysInPast}"
+
+    response = requests.get(url).json()
+
+    most_recent_covid_data = []
+    most_recent_covid_data_state = []
+
+
+
+    covid_dates = []
+    covid_states = []
+    covid_positive_case_count = []
+    covid_death_count = []
+    most_recent_report_date_check = []
+
+    #get max report date
+    for r in response['historicData']:
+        covid_dates.append(r['date'])
+        covid_states.append(r['provinceStateName'])
+        covid_positive_case_count.append(r['peoplePositiveCasesCt'])
+        covid_death_count.append(r['deathCt'])
+
+
+    most_recent_covid_date = max(covid_dates)
+
+    #get data associated with max report date
+    for r in response['historicData']:
+        if r['date'] == most_recent_covid_date:
+            most_recent_report_date_check.append("Most Recent Report Date")
+
+        elif str(datetime.datetime.strptime(r['date'], '%Y-%m-%d') )== str(datetime.datetime.strptime(most_recent_covid_date, '%Y-%m-%d') - timedelta(days =1)):
+            most_recent_report_date_check.append("Second Most Recent Report Date")
+
+        else:
+            most_recent_report_date_check.append("")
+
+
+    #create dictionary for most recent data
+    covid_data_dict = {
+        "report_date" : covid_dates,
+        "state" : covid_states,
+        "people_positive_cases_count" : covid_positive_case_count,
+        "death_count" : covid_death_count,
+        "most_recent_report_date_check" : most_recent_report_date_check
+    }
+    #print(covid_data_dict)
+
+    covid_data_df = pd.DataFrame(covid_data_dict, columns=["report_date", "state", "people_positive_cases_count", "death_count", "most_recent_report_date_check"])
+
+    #print(covid_data_df)
+
+    daily_death_count_change = covid_data_df['death_count'].diff()
+    daily_positive_cases_change = covid_data_df['people_positive_cases_count'].diff()
+
+    covid_data_df['daily_positive_cases_change'] = daily_positive_cases_change
+    covid_data_df['daily_death_count_change'] = daily_death_count_change
+
+    #print(covid_data_df.to_string())
+
+    covid_data_most_recent_df = covid_data_df.loc[covid_data_df['most_recent_report_date_check'] == "Most Recent Report Date"]
+    covid_data_most_recent_df = covid_data_most_recent_df.drop(columns = ['most_recent_report_date_check'])
+    #print(covid_data_most_recent_df.to_string())
+
+    return covid_data_most_recent_df
+
+
+#Run Functions
+covid_df = get_covid_data(state, daysInPast)
+print(covid_df.to_string())
+check_if_valid_data(covid_df)
+
+#Load data to database
+
+# Since database does not exist at first, it will be created automatically in the first run
+engine = sqlalchemy.create_engine(DATABASE_LOCATION)
+
+# Create connection to database
+conn = sqlite3.connect(CONNECTION)
+
+# pointer that allows us to connect to specific rows in our database
+cursor = conn.cursor()
+
+sql_query = """
+    CREATE TABLE IF NOT EXISTS covid_cases(
+    report_date VARCHAR(200),
+    state VARCHAR(200),
+    people_positive_cases_count VARCHAR(200),
+    death_count VARCHAR(200),
+    daily_positive_cases_change VARCHAR(200),
+    daily_death_count_change VARCHAR(200),
+    
+    CONSTRAINT primary_key_constraint PRIMARY KEY (report_date,state)
+    
+    )
+"""
+
+cursor.execute(sql_query)
+print("Opening database was successful")
+
+try:
+    covid_df.to_sql("covid_cases", engine, index=False, if_exists='append')
+except:
+    print("Data already exists in the database")
+
+#Close Connection
+conn.close()
+print("Connection closed")
