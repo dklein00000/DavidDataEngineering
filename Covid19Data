@@ -10,7 +10,10 @@ import sqlite3
 CONNECTION = "covid_cases.sqlite"
 DATABASE_LOCATION = f"sqlite:///{CONNECTION}"
 
-state = "GA"
+state = ["AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY",
+         "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "ND", "OH",
+         "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY"]
+
 daysInPast = 7
 #could I add a line that compares yesterday to today to get number of new cases and new deaths?
 
@@ -96,9 +99,15 @@ def get_covid_data(state, daysInPast) -> pd.DataFrame:
 
     return covid_data_most_recent_df
 
-
+get_covid_data_df = pd.DataFrame()
 #Run Functions
-covid_df = get_covid_data(state, daysInPast)
+for s in state:
+    print(s)
+    df = get_covid_data(s, daysInPast)
+    print(df)
+    get_covid_data_df = get_covid_data_df.append(df)
+
+covid_df = get_covid_data_df
 print(covid_df.to_string())
 check_if_valid_data(covid_df)
 
